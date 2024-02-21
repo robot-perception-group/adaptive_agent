@@ -1,0 +1,47 @@
+name: "rmacompblimp"
+explore_method: "null" # null
+exploit_method: "sfgpi"
+entropy_tuning: True
+alpha: 1.0
+alpha_lr: 3e-4
+target_entropy_scale: 2.0
+lr: 0.0000406347677650965 
+policy_lr: 0.000001894346478320517
+adaptor_lr: 0.01
+lr_schedule: False
+gamma: 0.99
+tau: 5e-3
+td_target_update_interval: 1
+updates_per_step: 1
+reward_scale: 1.0
+grad_clip: null
+norm_task_by_sf: False
+use_auxiliary_task: False
+n_auxTask: 1
+aux_coeff: 0.01
+curriculum_learning: False
+use_continuity_loss: False
+continuity_coeff: 0.01
+use_imitation_loss: True
+imitation_coeff: 1.0
+use_kl_loss: False
+kl_coeff: 1.0
+wandb_verbose: False
+load_model: False
+model_path: "rmacompblimp/BlimpRand/2024-01-19-13-20-15/model980/"
+
+sf_net_kwargs: 
+    hidden_dim: 256
+    num_layers: 2
+    resnet: False
+    layernorm: True
+    fta: False
+    max_nheads: 21
+policy_net_kwargs: 
+    hidden_dim: 128
+    num_layers: 2
+    resnet: False
+    layernorm: True
+    fta: False
+    max_nheads: 20
+    

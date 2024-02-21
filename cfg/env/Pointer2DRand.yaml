@@ -1,0 +1,138 @@
+env_name: "Pointer2DRand"
+num_envs: 1024
+
+goal_lim: 10
+goal_vel_lim: 5
+vel_lim: 5
+
+episode_max_step: 500
+total_episodes: 50
+
+mode: "train" # train or test
+
+eval: True
+eval_interval: 4
+eval_episodes: 1
+save_model: True  # save model after evaluation
+
+log_path: "logs/"  # config, video, model log path
+log_interval: 5 # wandb log
+
+task:
+  verbose: False
+
+  rand_task: True # fix train task or not
+  rand_vel_targets: True
+
+  # proximity reward
+  proximity_threshold: 2
+
+  # targets for play
+  target_pos:     [0, 0, 2] # x, y
+  target_vel:     [0, 0, 0] # vx, vy, vz
+  target_ang:     [0, 0, 0] # rpy
+  target_angvel:  [0, 0, 0] # wx, wy, wz
+
+  # specify task weight |px|, |py|, |v|, |ang|, |angvel|
+  task_wTrain: [1, 0, 0, 0.5, 0]  
+  task_wEval: [0, 0, 0, 1, 0]
+
+  # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
+  taskSet_train: "achievable"
+  taskSet_eval: "achievable"
+  adaptive_task: True
+
+  taskLabels: ["px", "py", "vel norm", "ang", "angvel"]
+  # set of task weights
+  taskSet:
+    achievable:   [
+      [1,0,0,0,0],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,1,0,0,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [1, 0, 0, 0.5, 0],
+      [1, 0, 0.5, 0, 0.0]
+      ]
+
+    redundant:   [
+      [1,0,0,0,0],
+      [1,0,0,0,0],
+      [0,1,0,0,0],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [0,0,0,0,1],
+      [1,1,0,0,0],
+      [1,1,0,0,0],
+      [1,1,0,1,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [0,0,1,0,1],
+      [1, 0, 0, 0.5, 0.0],
+      [1, 0, 0, 0.5, 0.0],
+      [1, 0, 0.5, 0, 0.0],
+      [1, 0, 0.5, 0, 0.0]
+      ]
+
+    single: [
+      [1,1,0,0,0]
+      ]
+
+    long: [
+      [1,0,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,0,1,0,0],
+      [1,0,1,1,0],
+      [1,0,0,1,0],
+      [1,0,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [0,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [0,1,1,0,0],
+      [0,1,1,1,0],
+      [0,1,0,1,0],
+      [0,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1],
+      [1,1,0,0,0],
+      [0,0,1,0,0],
+      [0,0,0,1,0],
+      [0,0,0,0,1],
+      [1,1,1,0,0],
+      [1,1,1,1,0],
+      [1,1,0,1,0],
+      [1,1,0,0,1],
+      [0,0,1,1,0],
+      [0,0,1,0,1]
+      ]
+
+
+feature: # |px|, |py|, |v|, |ang|, |angvel|
+  dim: 2 # pointer N dim
+  verbose: True
+  use_feature: [True, True, True, True, True]
+
+  
+sim:
+  sim_device: "cuda:0"
+  headless: True
+  compute_device_id: 0
+  graphics_device_id: 0

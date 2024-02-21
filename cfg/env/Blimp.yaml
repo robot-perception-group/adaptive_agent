@@ -1,0 +1,149 @@
+# ======== Asset info blimp: ========
+# Got 15 bodies, 14 joints, and 5 DOFs
+# Bodies:
+#   0: 'base'
+#   1: 'gondola'
+#   2: 'blimp_stick'
+#   3: 'blimp_wing1'
+#   4: 'blimp_wing2'
+#   5: 'blimp_support1'
+#   6: 'blimp_support2'
+#   7: 'blimp_rud_bot'
+#   8: 'rud_bot'
+#   9: 'blimp_rud_left'
+#  10: 'rud_left'
+#  11: 'blimp_rud_right'
+#  12: 'rud_right'
+#  13: 'blimp_rud_top'
+#  14: 'rud_top'
+# Joints:
+#   0: 'base_gondola' (Fixed)
+#   1: 'gondola_stick' (Revolute)
+#   2: 'stick_wing1' (Fixed)
+#   3: 'stick_wing2' (Fixed)
+#   4: 'gondola_support1' (Fixed)
+#   5: 'gondola_support2' (Fixed)
+#   6: 'base_rud_bot' (Fixed)
+#   7: 'rud_bot' (Revolute)
+#   8: 'base_rud_left' (Fixed)
+#   9: 'rud_left' (Revolute)
+#  10: 'base_rud_right' (Fixed)
+#  11: 'rud_right' (Revolute)
+#  12: 'base_rud_top' (Fixed)
+#  13: 'rud_top' (Revolute)
+# DOFs:
+#   0: 'gondola_stick' (Rotation)
+#   1: 'rud_bot' (Rotation)
+#   2: 'rud_left' (Rotation)
+#   3: 'rud_right' (Rotation)
+#   4: 'rud_top' (Rotation)
+
+
+env_name: "Blimp"
+num_envs: 1024
+
+goal_lim: 20
+goal_vel_lim: 5
+vel_lim: 5
+
+episode_max_step: 1000
+total_episodes: 100
+
+mode: "train" # train or test
+
+eval: True
+eval_interval: 10
+eval_episodes: 1
+
+save_model: False  # save model after evaluation
+log_path: "logs/"  # config, video, model log path
+log_interval: 5 # wandb log
+
+blimp:
+  spawn_height: 15
+  mass: 8.907
+  ema_smooth: 0.3
+  # indices of blimp bodies for which aerodynamics is calculated
+  drag_body_idxs: [0, 7, 8, 9, 10, 11, 12, 13, 14]
+  # approx (x,y,z) components of area for the above bodies (in m^2)
+  areas:   [[2.544, 6.3, 6.3],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],
+            [0, 0.30, 0],
+            [0, 0.15, 0],]
+  
+  drag_coef: [[0.3, 0.47, 0.47],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],
+              [0,   1.17,    0],]
+
+aero:
+  wind_dirs: [1.0, 1.0, 0.25]
+  wind_mag: 0
+  wind_std: 0.3
+
+task:
+  verbose: True
+
+  init_vel:           True
+  rand_vel_targets:   False
+
+  # proximity reward
+  proximity_threshold: 2 # [m]
+
+  # targets for play
+  target_pos:     [0, 0, 2] # x, y
+  target_vel:     [0, 0, 0] # vx, vy, vz
+  target_ang:     [0, 0, 0] # rpy
+  target_angvel:  [0, 0, 0] # wx, wy, wz
+
+  # specify initial task weight
+  # |px|, |py|, |v|, |ang|, |angvel|
+  task_wTrain: [1, 0, 0.2, 0.5, 0.0]  
+  task_wEval: [0, 0, 0, 1, 0]
+
+  # can be "uniform", "permute", "identity", "achievable", "single", "redundant"
+  taskSet_train: "redundant"
+  taskSet_eval: "achievable"
+  adaptive_task: True
+
+  taskLabels: ["px", "py", "vel norm", "ang", "angvel"]
+
+  # set of task weights
+  taskSet:
+    achievable:   [[1,0,0,0,0],
+                [0,1,0,0,0],
+                [0,0,1,0,0],
+                [0,0,0,1,0],
+                [0,0,0,0,1],
+                [1,1,0,0,0],
+                [1,1,0,1,0],
+                [1,1,0,0,1],
+                [0,0,1,1,0],
+                [0,0,1,0,1]]
+
+    single: [[1,1,0,0,0]]
+
+feature: # |px|, |py|, |v|, |ang|, |angvel|
+  dim: 3 # pointer N dim
+  verbose: True
+  use_feature: [True, True, True, True, True]
+
+  
+sim:
+  dt: 0.05
+  substeps: 2
+  gravity: [0.0, 0.0, -9.8]
+  sim_device: "cuda:0"
+  headless: True
+  compute_device_id: 0
+  graphics_device_id: 0

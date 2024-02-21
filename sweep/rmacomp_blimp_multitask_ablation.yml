@@ -1,0 +1,96 @@
+program: run.py
+method: grid
+metric:
+  goal: maximize
+  name: reward_phase1/eval_metrics
+
+parameters:
+  agent.lr:
+    values: [0.0000406347677650965]
+  agent.policy_lr:
+    values: [0.000001894346478320517]
+  agent.adaptor_lr:
+    values: [0.01]
+  agent.updates_per_step:
+    values: [1]
+  agent.td_target_update_interval:
+    values: [1]
+  agent.explore_method:
+    values: ["null"]
+  agent.exploit_method:
+    values: ["sfgpi"]
+  agent.rma:
+    values: [False]
+  agent.phase:
+    values: [1]
+  agent.use_continuity_loss:
+    values: [False]
+  agent.continuity_coeff:
+    values: [0.0001]
+  agent.use_imitation_loss:
+    values: [True, False]
+  agent.imitation_coeff:
+    values: [1.0]
+  agent.use_kl_loss:
+    values: [True, False]
+  agent.kl_coeff:
+    values: [1.0]
+  agent.lr_schedule:
+    values: [False]
+  agent.norm_task_by_sf:
+    values: [False]
+  agent.use_decoder:
+    values: [True]
+  agent.use_auxiliary_task:
+    values: [True, False]
+  agent.use_collective_learning:
+    values: [True, False]
+  agent.policy_net_kwargs.hidden_dim:
+    values: [256]
+  agent.policy_net_kwargs.resnet:
+    values: [True, False]
+  agent.policy_net_kwargs.fta:
+    values: [True, False]
+  agent.sf_net_kwargs.hidden_dim:
+    values: [512]
+  agent.sf_net_kwargs.resnet:
+    values: [True]
+  agent.sf_net_kwargs.fta:
+    values: [False]
+  agent.curriculum_learning:
+    values: [False]
+  agent.load_model:
+    values: [False]
+  agent.model_path: 
+    values: ["rmacompblimp/BlimpRand/2024-01-19-13-20-15/model980"]
+  buffer.framestacked_replay:
+    values: [True]
+  buffer.stack_size:
+    values: [50]
+  buffer.mini_batch_size:
+    values: [2048]
+  env.feature.scale_pos:
+    values: [20]
+  env.feature.scale_prox:
+    values: [10]
+  env.feature.scale_ang:
+    values: [50]
+  env.goal.type:
+    values: ["rand"]
+  env.task.adaptive_task:
+    values: [False]
+  env.task.domain_rand:
+    values: [False]
+  env.num_envs:
+    values: [1024]
+  env.task.taskSet_train:
+    values: ["achievable5", "achievable10", "achievable20"] 
+  env.task.taskSet_eval:
+    values: ["evaluation"]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - agent=RMACOMPBLIMP
+  - env=BlimpRand

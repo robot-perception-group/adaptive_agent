@@ -1,0 +1,101 @@
+program: run.py
+name: domain_transfer_ablation
+method: grid
+metric:
+  goal: maximize
+  name: reward_phase1/eval_metrics
+
+parameters:
+  agent.lr:
+    values: [0.00098003373415254]
+  agent.policy_lr:
+    values: [0.00000648957889493755]
+  agent.adaptor_lr:
+    values: [0.01]
+  agent.updates_per_step:
+    values: [1]
+  agent.td_target_update_interval:
+    values: [1]
+  agent.explore_method:
+    values: ["null"]
+  agent.exploit_method:
+    values: ["sfgpi"]
+  agent.rma:
+    values: [True]
+  agent.phase:
+    values: [1]
+  agent.use_resnet:
+    values: [True, False]
+  agent.use_continuity_loss:
+    values: [False]
+  agent.continuity_coeff:
+    values: [0.0001]
+  agent.use_imitation_loss:
+    values: [True]
+  agent.imitation_coeff:
+    values: [1.0]
+  agent.use_kl_loss:
+    values: [False]
+  agent.kl_coeff:
+    values: [0.1]
+  agent.lr_schedule:
+    values: [False]
+  agent.norm_task_by_sf:
+    values: [False]
+  agent.use_decoder:
+    values: [True, False]
+  agent.use_auxiliary_task:
+    values: [True]
+  agent.policy_net_kwargs.hidden_dim:
+    values: [128]
+  agent.policy_net_kwargs.resnet:
+    values: [True]
+  agent.policy_net_kwargs.fta:
+    values: [True]
+  agent.sf_net_kwargs.hidden_dim:
+    values: [256]
+  agent.sf_net_kwargs.resnet:
+    values: [True]
+  agent.sf_net_kwargs.fta:
+    values: [False]
+  agent.curriculum_learning:
+    values: [False]
+  agent.load_model:
+    values: [False]
+  agent.model_path: 
+    values: ["rmacompblimp/BlimpRand/2024-01-19-13-20-15/model980"]
+  buffer.framestacked_replay:
+    values: [True]
+  buffer.stack_size:
+    values: [50]
+  buffer.mini_batch_size:
+    values: [2048]
+  env.total_episodes:
+    values: [120]
+  env.feature.scale_pos:
+    values: [20]
+  env.feature.scale_prox:
+    values: [10]
+  env.feature.scale_ang:
+    values: [50]
+  env.goal.type:
+    values: ["rand"]
+  env.task.adaptive_task:
+    values: [False]
+  env.task.domain_rand:
+    values: [True]
+  env.num_envs:
+    values: [1024]
+  env.task.taskSet_train:
+    values: ["achievable5"] 
+  env.task.taskSet_eval:
+    values: ["evaluation"]
+  env.seed:
+    values: [123, 456]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - agent=RMACOMPBLIMP
+  - env=BlimpRand
