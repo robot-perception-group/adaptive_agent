@@ -1,14 +1,10 @@
 import isaacgym
 
-import hydra
 from omegaconf import DictConfig, OmegaConf
 import argparse
 import json
 from common.util import (
-    omegaconf_to_dict,
     print_dict,
-    fix_wandb,
-    update_dict,
     AverageMeter,
 )
 
@@ -17,25 +13,23 @@ from run import get_agent
 import torch
 import numpy as np
 
-import wandb
-
 from tkinter import *
 
 # Initialize parser
-# parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser()
 
 # # Adding optional argument
-# parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
-# parser.add_argument(
-#     "-c",
-#     "--checkpoint",
-#     help="specific saved model e.g. model10",
-#     type=str,
-#     required=True,
-# )
+parser.add_argument("-p", "--path", help="model save path", type=str, required=True)
+parser.add_argument(
+    "-c",
+    "--checkpoint",
+    help="specific saved model e.g. model10",
+    type=str,
+    required=True,
+)
 
 # Read arguments from command line
-# args = parser.parse_args()
+args = parser.parse_args()
 
 
 class PlayUI:
@@ -45,7 +39,6 @@ class PlayUI:
         self.root.geometry("1300x200")
         self.frame = Frame(self.root)
         self.frame.pack()
-
 
         # init and load agent
         self.agent = get_agent(cfg_dict)
@@ -70,6 +63,7 @@ class PlayUI:
             self.agent.task.Eval.W = (
                 self.agent.task.Eval.W / self.agent.task.Eval.W.norm(1, 1, keepdim=True)
             )
+
         return update_val
 
     def target_update_function(self, dimension):
@@ -114,7 +108,9 @@ class PlayUI:
         self.rb_z = DoubleVar(name="robot z")  # instantiate the IntVar variable class
         self.rb_z.set(0.0)  # set it to 0 as the initial value
 
-        self.rel_hov = DoubleVar(name="hov dist")  # instantiate the IntVar variable class
+        self.rel_hov = DoubleVar(
+            name="hov dist"
+        )  # instantiate the IntVar variable class
         self.rel_hov.set(0.0)  # set it to 0 as the initial value
 
         self.wp_idx = DoubleVar(name="wp idx")  # instantiate the IntVar variable class
@@ -133,13 +129,11 @@ class PlayUI:
         Label(self.root, text="wp idx: ").pack(side=LEFT)
         Label(self.root, textvariable=self.wp_idx).pack(side=LEFT)
 
-
     def _debug_ui(self):
         # only runs UI loop without inference
         while True:
             self.root.update_idletasks()
             self.root.update()
-
 
     def play(self):
         print("self.agent.task.Eval:", self.agent.task.Eval.W)
@@ -155,7 +149,7 @@ class PlayUI:
                 self.root.update()
 
                 a = self.agent.act(s, self.agent.task.Eval, "exploit")
-                a[:,2] = 1
+                a[:, 2] = 1
 
                 self.agent.env.step(a)
                 s_next = self.agent.env.obs_buf.clone()
@@ -171,30 +165,27 @@ class PlayUI:
                 ang_z = s[:, 2]
                 pos_x = s[:, 11]
                 pos_y = s[:, 12]
-                pos_z = s[:, 13]+20
+                pos_z = s[:, 13] + 20
 
                 rec_ang_z.append(ang_z)
                 rec_pos_x.append(pos_x)
                 rec_pos_y.append(pos_y)
                 rec_pos_z.append(pos_z)
 
-
             rec_ang_z = torch.stack(rec_ang_z).squeeze().cpu().numpy()
             rec_pos_x = torch.stack(rec_pos_x).squeeze().cpu().numpy()
             rec_pos_y = torch.stack(rec_pos_y).squeeze().cpu().numpy()
             rec_pos_z = torch.stack(rec_pos_z).squeeze().cpu().numpy()
-            np.savetxt('text_angz.out',[rec_ang_z], delimiter=',', newline='')
-            np.savetxt('text_posx.out',[rec_pos_x], delimiter=',', newline='')
-            np.savetxt('text_posy.out',[rec_pos_y], delimiter=',', newline='')
-            np.savetxt('text_posz.out',[rec_pos_z], delimiter=',', newline='')
-            
-            break
+            np.savetxt("text_angz.out", [rec_ang_z], delimiter=",", newline="")
+            np.savetxt("text_posx.out", [rec_pos_x], delimiter=",", newline="")
+            np.savetxt("text_posy.out", [rec_pos_y], delimiter=",", newline="")
+            np.savetxt("text_posz.out", [rec_pos_z], delimiter=",", newline="")
 
+            break
 
 
 def modify_cfg(cfg_dict):
     # don't change these
-    cfg_dict["agent"]["norm_task_by_sf"] = False
     cfg_dict["agent"]["use_decoder"] = False
     cfg_dict["agent"]["load_model"] = False
     cfg_dict["env"]["save_model"] = False
@@ -209,14 +200,14 @@ def modify_cfg(cfg_dict):
     # cfg_dict["env"]["episode_max_step"] = int(50 * (512 / cfg_dict["env"]["num_envs"]))
 
     # change these
-    cfg_dict["agent"]["norm_task_by_sf"] = False
     cfg_dict["agent"]["phase"] = 1  # phase: [encoder, adaptor, fine-tune, deploy]
-    # cfg_dict["agent"]["name"] = "PID"  
+    # cfg_dict["agent"]["name"] = "PID"
     cfg_dict["env"]["num_envs"] = 1
     cfg_dict["env"]["goal"]["type"] = "fix"
-    cfg_dict["env"]["goal"]["style"] = "square" # square, hourglass, circle
+    cfg_dict["env"]["goal"]["style"] = "square"  # square, hourglass, circle
     cfg_dict["env"]["goal"]["trigger_dist"] = 5.5
-    cfg_dict["env"]["task"]["task_wEval"] = [0,0.0,0,-1, 0,0,-.5, 0,0, 0,0,0,0] #['planar','Z','trigger','heading',  'proximity','yaw','vnorm',   'vxy','vz',  'bndcost','regRP','regT', 'regS']
+    cfg_dict["env"]["task"]["task_wEval"] = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+    # ['planar','Z','trigger','heading',  'proximity','yaw','vnorm',   'vxy','vz',  'bndcost','regRP','regT', 'regS']
     if "aero" in cfg_dict["env"]:
         cfg_dict["env"]["aero"]["wind_mag"] = 0.1
     if "domain_rand" in cfg_dict["env"]["task"]:
@@ -228,52 +219,50 @@ def modify_cfg(cfg_dict):
     return cfg_dict
 
 
-@hydra.main(config_name="config", config_path="./cfg")
-def launch_rlg_hydra(cfg: DictConfig):
-    cfg_dict = omegaconf_to_dict(cfg)
+# @hydra.main(config_name="config", config_path="./cfg")
+# def launch_rlg_hydra(cfg: DictConfig):
+#     cfg_dict = omegaconf_to_dict(cfg)
 
-    wandb.init(mode="disabled")
-    wandb_dict = fix_wandb(wandb.config)
+#     wandb.init(mode="disabled")
+#     wandb_dict = fix_wandb(wandb.config)
 
-    model_folder = (
-        "/home/yutang/rl/sf_mutitask_rl/logs/rmacompblimp/BlimpRand/2024-01-19-13-20-15"
-    )
-    model_checkpoint = "model980" 
-
-    cfg_path = model_folder + "/cfg"
-    model_path = model_folder + "/" + model_checkpoint 
-
-    cfg_dict = None
-    with open(cfg_path) as f:
-        cfg_dict = json.load(f)
-
-    # print_dict(wandb_dict)
-    update_dict(cfg_dict, wandb_dict)
-
-    cfg_dict = modify_cfg(cfg_dict)
-
-    playob = PlayUI(cfg_dict, model_path)
-    playob.play()
-
-    wandb.finish()
-
-
-# def launch_play():
-#     model_folder = args.path
-#     model_checkpoint = args.checkpoint
+#     model_folder = ""
+#     model_checkpoint = "model980"
 
 #     cfg_path = model_folder + "/cfg"
-#     model_path = model_folder + "/" + model_checkpoint + "/"
+#     model_path = model_folder + "/" + model_checkpoint
 
 #     cfg_dict = None
 #     with open(cfg_path) as f:
 #         cfg_dict = json.load(f)
 
+#     # print_dict(wandb_dict)
+#     update_dict(cfg_dict, wandb_dict)
+
 #     cfg_dict = modify_cfg(cfg_dict)
-#     print(cfg_dict)
 
 #     playob = PlayUI(cfg_dict, model_path)
 #     playob.play()
+
+#     wandb.finish()
+
+
+def launch_play():
+    model_folder = args.path
+    model_checkpoint = args.checkpoint
+
+    cfg_path = model_folder + "/cfg"
+    model_path = model_folder + "/" + model_checkpoint + "/"
+
+    cfg_dict = None
+    with open(cfg_path) as f:
+        cfg_dict = json.load(f)
+
+    cfg_dict = modify_cfg(cfg_dict)
+    print(cfg_dict)
+
+    playob = PlayUI(cfg_dict, model_path)
+    playob.play()
 
 
 if __name__ == "__main__":

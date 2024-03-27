@@ -1,26 +1,127 @@
 # import isaacgym
 
+import sys
+from pathlib import Path
+import torch.nn.functional as F
+
+import hydra
 import torch
 import torch.nn as nn
+import wandb
+from omegaconf import DictConfig
 from torch.nn.utils import weight_norm
 from torch.optim import Adam
 
-import sys
-from pathlib import Path
+from common.util import fix_wandb, omegaconf_to_dict, print_dict, update_dict
+
 par = Path().resolve().parent
 sys.path.append(str(par))
-
-
-import hydra
-import wandb
-from omegaconf import DictConfig
-from common.util import omegaconf_to_dict, print_dict, fix_wandb, update_dict
 
 
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
+
+
+class ENVEncoderBuilder(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
+        super().__init__()
+
+        self.resnet = resnet
+        self.l1 = nn.Linear(in_dim, hidden_dim)
+
+        if resnet:
+            self.l2 = nn.Linear(in_dim + hidden_dim, hidden_dim)
+            self.l3 = nn.Linear(in_dim + hidden_dim, out_dim)
+
+            self.ln1 = nn.LayerNorm(in_dim + hidden_dim)
+            self.ln2 = nn.LayerNorm(in_dim + hidden_dim)
+        else:
+            self.l2 = nn.Linear(hidden_dim, hidden_dim)
+            self.l3 = nn.Linear(hidden_dim, out_dim)
+
+            self.ln1 = nn.LayerNorm(hidden_dim)
+            self.ln2 = nn.LayerNorm(hidden_dim)
+
+        self.apply(weights_init_)
+
+    def forward(self, xu):
+        x = F.selu(self.l1(xu))
+        if self.resnet:
+            x = torch.cat([x, xu], dim=1)
+        x = self.ln1(x)
+
+        x = F.selu(self.l2(x))
+        if self.resnet:
+            x = torch.cat([x, xu], dim=1)
+        x = self.ln2(x)
+
+        x = self.l3(x)
+        return x
+
+
+class ENVEncoder(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
+        super().__init__()
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(in_dim, out_dim, hidden_dim, resnet),
+            example_inputs=torch.rand(1, in_dim),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
+
+
+class ENVDecoder(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
+        super().__init__()
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(in_dim, out_dim, hidden_dim, resnet),
+            example_inputs=torch.rand(1, in_dim),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
+
+
+class AdaptationModule(nn.Module):
+    def __init__(
+        self, in_dim, out_dim, stack_size, kernel_size=5, hidden_dim=256, resnet=True
+    ) -> None:
+        super().__init__()
+        self.tcn = TCN(
+            in_dim=in_dim,
+            out_dim=out_dim,
+            num_channels=[in_dim, in_dim, in_dim],
+            stack_size=stack_size,
+            kernel_size=kernel_size,
+        )
+        self.model = torch.jit.trace(
+            ENVEncoderBuilder(out_dim, out_dim, hidden_dim, resnet),
+            example_inputs=torch.rand(1, out_dim),
+        )
+
+    def forward(self, x):
+        return self.model(self.tcn(x))
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
 
 
 class Chomp1d(nn.Module):

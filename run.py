@@ -17,16 +17,21 @@ def get_agent(cfg_dict):
 
         agent = BlimpPositionController(cfg_dict)
 
-    elif "rmacompblimp" in cfg_dict["agent"]["name"].lower():
-        from agents.rmacompose_pid import RMACompPIDAgent
+    elif "rmacomp" in cfg_dict["agent"]["name"].lower():
+        from agents.rmacompose import RMACompAgent
 
-        agent = RMACompPIDAgent(cfg_dict)
+        agent = RMACompAgent(cfg_dict)
 
-    elif "compblimp" in cfg_dict["agent"]["name"].lower():
-        from agents.compose_pid import CompPIDAgent
+    elif "comp" in cfg_dict["agent"]["name"].lower():
+        from agents.compose import CompAgent
 
-        agent = CompPIDAgent(cfg_dict)
-        
+        agent = CompAgent(cfg_dict)
+
+    elif "sac" in cfg_dict["agent"]["name"].lower():
+        from agents.sac import SACAgent
+
+        agent = SACAgent(cfg_dict)
+
     else:
         raise NotImplementedError
 

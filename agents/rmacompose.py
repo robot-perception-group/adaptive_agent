@@ -5,17 +5,18 @@ import isaacgym
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import wandb
 from torch.distributions import Normal
+from torch.optim import Adam
 
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
-from common.feature_extractor import TCN
-from common.policy import MultiheadGaussianPolicy, weights_init_
+from common.feature_extractor import AdaptationModule, ENVDecoder, ENVEncoder
+from common.policy import MultiheadGaussianPolicy
 from common.util import (
     check_act,
     check_obs,
+    check_samples,
     grad_false,
     grad_true,
     hard_update,
@@ -23,111 +24,9 @@ from common.util import (
     pile_sa_pairs,
     soft_update,
     update_params,
-    check_samples,
 )
 from common.value import MultiheadSFNetwork
 from common.vec_buffer import FrameStackedReplayBuffer
-from torch.optim import Adam
-
-
-class ENVEncoderBuilder(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
-        super().__init__()
-
-        self.resnet = resnet
-        self.l1 = nn.Linear(in_dim, hidden_dim)
-
-        if resnet:
-            self.l2 = nn.Linear(in_dim + hidden_dim, hidden_dim)
-            self.l3 = nn.Linear(in_dim + hidden_dim, out_dim)
-
-            self.ln1 = nn.LayerNorm(in_dim + hidden_dim)
-            self.ln2 = nn.LayerNorm(in_dim + hidden_dim)
-        else:
-            self.l2 = nn.Linear(hidden_dim, hidden_dim)
-            self.l3 = nn.Linear(hidden_dim, out_dim)
-
-            self.ln1 = nn.LayerNorm(hidden_dim)
-            self.ln2 = nn.LayerNorm(hidden_dim)
-
-        self.apply(weights_init_)
-
-    def forward(self, xu):
-        x = F.selu(self.l1(xu))
-        if self.resnet:
-            x = torch.cat([x, xu], dim=1)
-        x = self.ln1(x)
-
-        x = F.selu(self.l2(x))
-        if self.resnet:
-            x = torch.cat([x, xu], dim=1)
-        x = self.ln2(x)
-
-        x = self.l3(x)
-        return x
-
-
-class ENVEncoder(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
-        super().__init__()
-        self.model = torch.jit.trace(
-            ENVEncoderBuilder(in_dim, out_dim, hidden_dim, resnet),
-            example_inputs=torch.rand(1, in_dim),
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-    def save(self, path):
-        torch.save(self.state_dict(), path)
-
-    def load(self, path):
-        self.load_state_dict(torch.load(path))
-
-
-class ENVDecoder(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_dim, resnet=True) -> None:
-        super().__init__()
-        self.model = torch.jit.trace(
-            ENVEncoderBuilder(in_dim, out_dim, hidden_dim, resnet),
-            example_inputs=torch.rand(1, in_dim),
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-    def save(self, path):
-        torch.save(self.state_dict(), path)
-
-    def load(self, path):
-        self.load_state_dict(torch.load(path))
-
-
-class AdaptationModule(nn.Module):
-    def __init__(
-        self, in_dim, out_dim, stack_size, kernel_size=5, hidden_dim=256, resnet=True
-    ) -> None:
-        super().__init__()
-        self.tcn = TCN(
-            in_dim=in_dim,
-            out_dim=out_dim,
-            num_channels=[in_dim, in_dim, in_dim],
-            stack_size=stack_size,
-            kernel_size=kernel_size,
-        )
-        self.model = torch.jit.trace(
-            ENVEncoderBuilder(out_dim, out_dim, hidden_dim, resnet),
-            example_inputs=torch.rand(1, out_dim),
-        )
-
-    def forward(self, x):
-        return self.model(self.tcn(x))
-
-    def save(self, path):
-        torch.save(self.state_dict(), path)
-
-    def load(self, path):
-        self.load_state_dict(torch.load(path))
 
 
 class FIFOBuffer:
@@ -152,7 +51,7 @@ class FIFOBuffer:
         )
 
 
-class RMACompPIDAgent(MultitaskAgent):
+class RMACompAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 
@@ -180,7 +79,6 @@ class RMACompPIDAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
 
         self.use_decoder = self.agent_cfg["use_decoder"]
         self.use_resnet = self.agent_cfg["use_resnet"]
@@ -189,10 +87,12 @@ class RMACompPIDAgent(MultitaskAgent):
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
-        self.imitation_coeff = self.agent_cfg["imitation_coeff"] 
+        self.imitation_coeff = self.agent_cfg["imitation_coeff"]
         self.use_kl_loss = self.agent_cfg["use_kl_loss"]
         self.kl_coeff = self.agent_cfg["kl_coeff"]
-        self.use_collective_learning = self.agent_cfg.get("use_collective_learning", False)
+        self.use_collective_learning = self.agent_cfg.get(
+            "use_collective_learning", False
+        )
 
         self.curriculum = (
             self.agent_cfg["curriculum_learning"]
@@ -207,9 +107,11 @@ class RMACompPIDAgent(MultitaskAgent):
 
         self.env_latent_dim = self.env.num_latent  # E
         self.env_expert_dim = self.env.num_expert  # Ex
-        self.observation_dim = self.observation_dim - self.env_latent_dim - self.env_expert_dim  # S = O-E-Ex
-        self.env_latent_idx = self.observation_dim + 1 
-        self.env_expert_idx = self.env_latent_idx + self.env_latent_dim  
+        self.observation_dim = (
+            self.observation_dim - self.env_latent_dim - self.env_expert_dim
+        )  # S = O-E-Ex
+        self.env_latent_idx = self.observation_dim + 1
+        self.env_expert_idx = self.env_latent_idx + self.env_latent_dim
         self.n_expert = self.env_expert_dim // self.action_dim
 
         # rma: train an adaptor module for sim-to-real
@@ -221,7 +123,7 @@ class RMACompPIDAgent(MultitaskAgent):
             self.episodes_phase3 = int(self.total_episodes // 2)
         else:
             self.episodes_phase2 = 0
-            self.episodes_phase3 = int(self.total_episodes //4) * 3
+            self.episodes_phase3 = int(self.total_episodes // 4) * 3
 
         # define primitive tasks
         self.w_primitive = self.task.Train.taskSet
@@ -396,11 +298,11 @@ class RMACompPIDAgent(MultitaskAgent):
             )
             self.lat_ra = self.env_cfg["task"]["range_a"]
             self.lat_rb = self.env_cfg["task"]["range_b"]
-        
+
         self.idx_trig = 7
 
     def run(self):
-        if self.phase == 1: # train everything and encoder, isaacgym
+        if self.phase == 1:  # train everything and encoder, isaacgym
             grad_true(self.sf)
             grad_true(self.sf_target)
             grad_true(self.policy)
@@ -413,7 +315,7 @@ class RMACompPIDAgent(MultitaskAgent):
             self.train_phase(self.episodes + self.total_episodes, self.curriculum)
             self.phase += 1
 
-        if self.phase == 2 and self.rma: # train adaptor, isaacgym+gazebo
+        if self.phase == 2 and self.rma:  # train adaptor, isaacgym+gazebo
             grad_false(self.sf)
             grad_false(self.sf_target)
             grad_false(self.policy)
@@ -436,7 +338,9 @@ class RMACompPIDAgent(MultitaskAgent):
             self.train_phase(self.episodes + self.episodes_phase2)
             self.phase += 1
 
-        if self.phase == 3 and self.rma: # train everything without encoder, isaacgym+gazebo
+        if (
+            self.phase == 3 and self.rma
+        ):  # train everything without encoder, isaacgym+gazebo
             grad_true(self.sf)
             grad_true(self.sf_target)
             grad_true(self.policy)
@@ -493,7 +397,7 @@ class RMACompPIDAgent(MultitaskAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.episodes > episodes-1:
+            if self.episodes > episodes - 1:
                 break
 
             if curriculum and self.episodes >= int(self.curri_epi[self.curri_stage]):
@@ -597,9 +501,10 @@ class RMACompPIDAgent(MultitaskAgent):
 
         metrics = trigger_wp + hover_time / 100
 
-        print(f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}")
+        print(
+            f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}"
+        )
         print(f"===== finish evaluate ====")
-
 
         wandb.log(
             {
@@ -654,7 +559,9 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def act(self, o, task, mode="explore"):
         try:
-            o = check_obs(o, self.observation_dim + self.env_latent_dim + self.env_expert_dim)
+            o = check_obs(
+                o, self.observation_dim + self.env_latent_dim + self.env_expert_dim
+            )
         except:
             o = check_obs(o, self.observation_dim)
 
@@ -666,7 +573,11 @@ class RMACompPIDAgent(MultitaskAgent):
 
     def _act(self, o, task, mode):
         with torch.no_grad():
-            if (self.steps <= self.min_n_experience) and mode == "explore" and not self.load_model:
+            if (
+                (self.steps <= self.min_n_experience)
+                and mode == "explore"
+                and not self.load_model
+            ):
                 a = (
                     2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
                     - 1
@@ -713,7 +624,11 @@ class RMACompPIDAgent(MultitaskAgent):
         if s.shape[1] >= self.env_latent_idx:
             # parse state and env_latent if env_latent is included in the observation
             # [N, S], [N,E], [N,Ex]
-            s, e, ex = s[:, : self.env_latent_idx-1], s[:, self.env_latent_idx-1 : self.env_expert_idx-1], s[:, self.env_expert_idx-1 : ]
+            s, e, ex = (
+                s[:, : self.env_latent_idx - 1],
+                s[:, self.env_latent_idx - 1 : self.env_expert_idx - 1],
+                s[:, self.env_expert_idx - 1 :],
+            )
         else:
             e = None
             ex = None
@@ -875,7 +790,9 @@ class RMACompPIDAgent(MultitaskAgent):
             f_next_pred1 = curr_sf1[:, -1]
             f_next_pred2 = curr_sf2[:, -1]
 
-            auxiliary_loss = self.aux_loss(f_next_pred1, f_next) + self.aux_loss(f_next_pred2, f_next)
+            auxiliary_loss = self.aux_loss(f_next_pred1, f_next) + self.aux_loss(
+                f_next_pred2, f_next
+            )
 
             curr_sf1 = curr_sf1[:, : -self.n_auxTask]  # [N, Ha, F]
             curr_sf2 = curr_sf2[:, : -self.n_auxTask]  # [N, Ha, F]
@@ -884,7 +801,9 @@ class RMACompPIDAgent(MultitaskAgent):
 
         # compute encoder decoder loss
         if self.use_decoder:
-            decoder_loss = self.decoder_loss(self.decoder(s), e) + self.decoder_loss(self.decoder(s_next), e_next)
+            decoder_loss = self.decoder_loss(self.decoder(s), e) + self.decoder_loss(
+                self.decoder(s_next), e_next
+            )
 
         self.sf_optimizer.zero_grad()
         if self.use_decoder:
@@ -913,7 +832,9 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.phase == 1:
             z = self.encoder(e)
         else:
-            s_stack, _, _ = self.parse_state(s_stack)  # [N,S,K], [N,E,K] <-- [N, S+E, K]
+            s_stack, _, _ = self.parse_state(
+                s_stack
+            )  # [N,S,K], [N,E,K] <-- [N, S+E, K]
             z = self.adaptor(s_stack[:, :, 1:])  # [N, S, K-1]
 
         s = torch.concat([s, z], dim=1)
@@ -952,14 +873,14 @@ class RMACompPIDAgent(MultitaskAgent):
         if self.use_imitation_loss:
             imi_loss = torch.zeros_like(policy_loss)  # [N, H, 1]
             for i in range(self.n_expert):
-                controller = ex[:, self.action_dim*i:self.action_dim*(i+1)]
+                controller = ex[:, self.action_dim * i : self.action_dim * (i + 1)]
                 imi_loss[:, i] = torch.norm(
                     controller - a_heads[:, i], dim=1, keepdim=True
                 )
                 info[f"imitation_loss{i}"] = imi_loss[:, i].mean().detach().item()
             info["imitation_loss"] = imi_loss.mean().detach().item()
 
-            policy_loss = policy_loss + self.imitation_coeff * imi_loss  
+            policy_loss = policy_loss + self.imitation_coeff * imi_loss
 
         if self.use_kl_loss:
             with torch.no_grad():
@@ -989,17 +910,21 @@ class RMACompPIDAgent(MultitaskAgent):
         z_next = self.encoder(e_next)
 
         s_stack, _, _ = self.parse_state(
-                batch["stacked_obs"]
-            )  # [N,S,K], [N,E,K] <-- [N, S+E, K]
+            batch["stacked_obs"]
+        )  # [N,S,K], [N,E,K] <-- [N, S+E, K]
         z_head = self.adaptor(s_stack[:, :, 1:])  # [N, S, K-1]
         z_next_head = self.adaptor(s_stack[:, :, :-1])  # [N, S, K-1]
 
-        adaptor_loss = self.adaptor_loss(z_head, z) + self.adaptor_loss(z_next_head, z_next)
+        adaptor_loss = self.adaptor_loss(z_head, z) + self.adaptor_loss(
+            z_next_head, z_next
+        )
 
         if self.use_decoder:
             s = torch.concat([s, z_head], dim=1)  # [N, S+Z]
             s_next = torch.concat([s_next, z_next_head], dim=1)  # [N, S+Z]
-            decoder_loss = self.decoder_loss(self.decoder(s), e) + self.decoder_loss(self.decoder(s_next), e_next)
+            decoder_loss = self.decoder_loss(self.decoder(s), e) + self.decoder_loss(
+                self.decoder(s_next), e_next
+            )
 
         self.adaptor_optimizer.zero_grad()
         if self.use_decoder:
@@ -1025,7 +950,7 @@ class RMACompPIDAgent(MultitaskAgent):
         # qs = torch.logsumexp(qs, dim=2, keepdim=True) - torch.log(torch.tensor(self.n_heads, dtype=torch.float32))
         qs = torch.max(qs, dim=2, keepdim=True)[0]
         return qs
-    
+
     def _calc_entropy_loss(self, entropy):
         # [N, H, 1] <--  [N, H, 1], [N,1,1]
         loss = self.log_alpha * (self.target_entropy - entropy).detach()
@@ -1041,11 +966,6 @@ class RMACompPIDAgent(MultitaskAgent):
 
         # [N, Ha, F] <-- [NHa, Hsf, F]
         curr_sf = self._process_sfs(curr_sf1, curr_sf2)
-
-        if self.norm_task_by_sf:
-            w = copy.copy(self.w_primitive)
-            w /= curr_sf.mean([0, 1]).abs()  # normalized by SF scale
-            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         # [N,H]<-- [N,H,F]*[H,F]
         qs = torch.einsum("ijk,jk->ij", curr_sf, self.w_primitive)
@@ -1086,15 +1006,14 @@ class RMACompPIDAgent(MultitaskAgent):
         sf = sf.view(self.mini_batch_size, self.n_heads, self.feature_dim)
         return sf
 
-
     def _create_entropy_tuner(self):
         self.alpha_lr = self.agent_cfg["alpha_lr"]
         target_entropy_scale = self.agent_cfg.get("target_entropy_scale", 1.0)
 
-        self.target_entropy = (
-            -target_entropy_scale*torch.prod(torch.tensor(self.action_shape, device=self.device))
-            .tile(self.n_heads)
-            .unsqueeze(1)
+        self.target_entropy = -target_entropy_scale * torch.prod(
+            torch.tensor(self.action_shape, device=self.device)
+        ).tile(self.n_heads).unsqueeze(
+            1
         )  # -|A|, [H,1]
 
         # optimize log(alpha), instead of alpha
@@ -1103,10 +1022,8 @@ class RMACompPIDAgent(MultitaskAgent):
                 [self.log_alpha.data, torch.zeros([1, 1])]
             ).to(self.device)
             self.log_alpha.requires_grad = True
-        elif self.load_model: # when load model, reduce entropy bonus
-            self.log_alpha = torch.zeros(
-                (self.n_heads, 1), device=self.device
-            ) - 2.0
+        elif self.load_model:  # when load model, reduce entropy bonus
+            self.log_alpha = torch.zeros((self.n_heads, 1), device=self.device) - 2.0
             self.log_alpha.requires_grad = True
         else:
             self.log_alpha = torch.zeros(

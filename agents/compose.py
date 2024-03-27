@@ -11,8 +11,7 @@ from torch.distributions import Normal
 
 from common.agent import MultitaskAgent
 from common.compositions import Compositions
-from common.feature_extractor import TCN
-from common.policy import MultiheadGaussianPolicy, weights_init_
+from common.policy import MultiheadGaussianPolicy
 from common.util import (
     check_act,
     check_obs,
@@ -30,7 +29,7 @@ from common.vec_buffer import FrameStackedReplayBuffer
 from torch.optim import Adam
 
 
-class CompPIDAgent(MultitaskAgent):
+class CompAgent(MultitaskAgent):
     def __init__(self, cfg):
         super().__init__(cfg)
 
@@ -58,17 +57,18 @@ class CompPIDAgent(MultitaskAgent):
         self.updates_per_step = self.agent_cfg["updates_per_step"]
         self.grad_clip = self.agent_cfg["grad_clip"]
         self.entropy_tuning = self.agent_cfg["entropy_tuning"]
-        self.norm_task_by_sf = self.agent_cfg["norm_task_by_sf"]
 
         self.use_auxiliary_task = self.agent_cfg["use_auxiliary_task"]
         self.aux_coeff = self.agent_cfg.get("aux_coeff", 0)
         self.use_continuity_loss = self.agent_cfg["use_continuity_loss"]
         self.continuity_coeff = self.agent_cfg["continuity_coeff"]
         self.use_imitation_loss = self.agent_cfg["use_imitation_loss"]
-        self.imitation_coeff = self.agent_cfg["imitation_coeff"] 
+        self.imitation_coeff = self.agent_cfg["imitation_coeff"]
         self.use_kl_loss = self.agent_cfg["use_kl_loss"]
         self.kl_coeff = self.agent_cfg["kl_coeff"]
-        self.use_collective_learning = self.agent_cfg.get("use_collective_learning", False)
+        self.use_collective_learning = self.agent_cfg.get(
+            "use_collective_learning", False
+        )
 
         self.curriculum = (
             self.agent_cfg["curriculum_learning"]
@@ -83,9 +83,11 @@ class CompPIDAgent(MultitaskAgent):
 
         self.env_latent_dim = self.env.num_latent  # E
         self.env_expert_dim = self.env.num_expert  # Ex
-        self.observation_dim = self.observation_dim - self.env_latent_dim - self.env_expert_dim  # S = O-E-Ex
-        self.env_latent_idx = self.observation_dim + 1 
-        self.env_expert_idx = self.env_latent_idx + self.env_latent_dim  
+        self.observation_dim = (
+            self.observation_dim - self.env_latent_dim - self.env_expert_dim
+        )  # S = O-E-Ex
+        self.env_latent_idx = self.observation_dim + 1
+        self.env_expert_idx = self.env_latent_idx + self.env_latent_dim
         self.n_expert = self.env_expert_dim // self.action_dim
 
         # define primitive tasks
@@ -218,7 +220,7 @@ class CompPIDAgent(MultitaskAgent):
             )
             self.lat_ra = self.env_cfg["task"]["range_a"]
             self.lat_rb = self.env_cfg["task"]["range_b"]
-        
+
         self.idx_trig = 7
 
     def run(self):
@@ -261,7 +263,7 @@ class CompPIDAgent(MultitaskAgent):
                 if self.save_model:
                     self.save_torch_model()
 
-            if self.episodes > episodes-1:
+            if self.episodes > episodes - 1:
                 break
 
             if curriculum and self.episodes >= int(self.curri_epi[self.curri_stage]):
@@ -365,9 +367,10 @@ class CompPIDAgent(MultitaskAgent):
 
         metrics = trigger_wp + hover_time / 100
 
-        print(f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}")
+        print(
+            f"eval episode {self.episodes}: ntrigger {trigger_wp}, hover_time {hover_time},  metrics {metrics}"
+        )
         print(f"===== finish evaluate ====")
-
 
         wandb.log(
             {
@@ -423,7 +426,9 @@ class CompPIDAgent(MultitaskAgent):
 
     def act(self, o, task, mode="explore"):
         try:
-            o = check_obs(o, self.observation_dim + self.env_latent_dim + self.env_expert_dim)
+            o = check_obs(
+                o, self.observation_dim + self.env_latent_dim + self.env_expert_dim
+            )
         except:
             o = check_obs(o, self.observation_dim)
 
@@ -435,7 +440,11 @@ class CompPIDAgent(MultitaskAgent):
 
     def _act(self, o, task, mode):
         with torch.no_grad():
-            if (self.steps <= self.min_n_experience) and mode == "explore" and not self.load_model:
+            if (
+                (self.steps <= self.min_n_experience)
+                and mode == "explore"
+                and not self.load_model
+            ):
                 a = (
                     2 * torch.rand((self.n_env, self.env.num_act), device=self.device)
                     - 1
@@ -464,7 +473,11 @@ class CompPIDAgent(MultitaskAgent):
         if s.shape[1] >= self.env_latent_idx:
             # parse state and env_latent if env_latent is included in the observation
             # [N, S], [N,E], [N,Ex]
-            s, e, ex = s[:, : self.env_latent_idx-1], s[:, self.env_latent_idx-1 : self.env_expert_idx-1], s[:, self.env_expert_idx-1 : ]
+            s, e, ex = (
+                s[:, : self.env_latent_idx - 1],
+                s[:, self.env_latent_idx - 1 : self.env_expert_idx - 1],
+                s[:, self.env_expert_idx - 1 :],
+            )
         else:
             e = None
             ex = None
@@ -576,7 +589,9 @@ class CompPIDAgent(MultitaskAgent):
             f_next_pred1 = curr_sf1[:, -1]
             f_next_pred2 = curr_sf2[:, -1]
 
-            auxiliary_loss = self.aux_loss(f_next_pred1, f_next) + self.aux_loss(f_next_pred2, f_next)
+            auxiliary_loss = self.aux_loss(f_next_pred1, f_next) + self.aux_loss(
+                f_next_pred2, f_next
+            )
 
             curr_sf1 = curr_sf1[:, : -self.n_auxTask]  # [N, Ha, F]
             curr_sf2 = curr_sf2[:, : -self.n_auxTask]  # [N, Ha, F]
@@ -637,14 +652,14 @@ class CompPIDAgent(MultitaskAgent):
         if self.use_imitation_loss:
             imi_loss = torch.zeros_like(policy_loss)  # [N, H, 1]
             for i in range(self.n_expert):
-                controller = ex[:, self.action_dim*i:self.action_dim*(i+1)]
+                controller = ex[:, self.action_dim * i : self.action_dim * (i + 1)]
                 imi_loss[:, i] = torch.norm(
                     controller - a_heads[:, i], dim=1, keepdim=True
                 )
                 info[f"imitation_loss{i}"] = imi_loss[:, i].mean().detach().item()
             info["imitation_loss"] = imi_loss.mean().detach().item()
 
-            policy_loss = policy_loss + self.imitation_coeff * imi_loss  
+            policy_loss = policy_loss + self.imitation_coeff * imi_loss
 
         if self.use_kl_loss:
             with torch.no_grad():
@@ -675,7 +690,7 @@ class CompPIDAgent(MultitaskAgent):
         # qs = torch.logsumexp(qs, dim=2, keepdim=True) - torch.log(torch.tensor(self.n_heads, dtype=torch.float32))
         qs = torch.max(qs, dim=2, keepdim=True)[0]
         return qs
-    
+
     def _calc_entropy_loss(self, entropy):
         # [N, H, 1] <--  [N, H, 1], [N,1,1]
         loss = self.log_alpha * (self.target_entropy - entropy).detach()
@@ -691,11 +706,6 @@ class CompPIDAgent(MultitaskAgent):
 
         # [N, Ha, F] <-- [NHa, Hsf, F]
         curr_sf = self._process_sfs(curr_sf1, curr_sf2)
-
-        if self.norm_task_by_sf:
-            w = copy.copy(self.w_primitive)
-            w /= curr_sf.mean([0, 1]).abs()  # normalized by SF scale
-            w /= w.norm(1, 1, keepdim=True)  # [N, Ha], H=F
 
         # [N,H]<-- [N,H,F]*[H,F]
         qs = torch.einsum("ijk,jk->ij", curr_sf, self.w_primitive)
@@ -736,15 +746,14 @@ class CompPIDAgent(MultitaskAgent):
         sf = sf.view(self.mini_batch_size, self.n_heads, self.feature_dim)
         return sf
 
-
     def _create_entropy_tuner(self):
         self.alpha_lr = self.agent_cfg["alpha_lr"]
         target_entropy_scale = self.agent_cfg.get("target_entropy_scale", 1.0)
 
-        self.target_entropy = (
-            -target_entropy_scale*torch.prod(torch.tensor(self.action_shape, device=self.device))
-            .tile(self.n_heads)
-            .unsqueeze(1)
+        self.target_entropy = -target_entropy_scale * torch.prod(
+            torch.tensor(self.action_shape, device=self.device)
+        ).tile(self.n_heads).unsqueeze(
+            1
         )  # -|A|, [H,1]
 
         # optimize log(alpha), instead of alpha
@@ -753,10 +762,8 @@ class CompPIDAgent(MultitaskAgent):
                 [self.log_alpha.data, torch.zeros([1, 1])]
             ).to(self.device)
             self.log_alpha.requires_grad = True
-        elif self.load_model: # when load model, reduce entropy bonus
-            self.log_alpha = torch.zeros(
-                (self.n_heads, 1), device=self.device
-            ) - 2.0
+        elif self.load_model:  # when load model, reduce entropy bonus
+            self.log_alpha = torch.zeros((self.n_heads, 1), device=self.device) - 2.0
             self.log_alpha.requires_grad = True
         else:
             self.log_alpha = torch.zeros(

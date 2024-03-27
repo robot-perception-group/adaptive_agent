@@ -26,7 +26,6 @@ class Compositions:
         self.action_dim = action_dim
         self.device = device
 
-        self.norm_task_by_sf = agent_cfg["norm_task_by_sf"]
         self.use_auxiliary_task = agent_cfg["use_auxiliary_task"]
         self.n_auxTask = agent_cfg["n_auxTask"]
 
@@ -132,10 +131,6 @@ class Compositions:
     def gpe(self, s, a, w):
         # [N, Ha, Hsf, F] <-- [N, S], [N, Ha, A]
         curr_sf = self.forward_sf(s, a, self.sf)
-
-        if self.norm_task_by_sf:
-            w /= curr_sf.mean([0, 1, 2]).abs()  # normalized by SF scale
-            w /= (w.norm(1, 1, keepdim=True)+1e-6)  # [N, Ha], H=F
 
         # [N,Ha,Hsf]<--[N,Ha,Hsf,F],[N,F]
         qs = torch.einsum("ijkl,il->ijk", curr_sf, w)
