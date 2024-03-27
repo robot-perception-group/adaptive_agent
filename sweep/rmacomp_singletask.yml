@@ -37,8 +37,6 @@ parameters:
     values: [1.0]
   agent.lr_schedule:
     values: [False]
-  agent.norm_task_by_sf:
-    values: [False]
   agent.use_decoder:
     values: [False]
   agent.use_auxiliary_task:
@@ -62,7 +60,7 @@ parameters:
   agent.load_model:
     values: [False]
   agent.model_path: 
-    values: ["rmacompblimp/BlimpRand/2024-01-19-13-20-15/model980"]
+    values: [""]
   buffer.framestacked_replay:
     values: [True]
   buffer.stack_size:
@@ -92,5 +90,5 @@ command:
   - ${env}
   - python
   - ${program}
-  - agent=RMACOMPBLIMP
+  - agent=RMACOMP
   - env=BlimpRand
