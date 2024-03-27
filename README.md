@@ -33,13 +33,13 @@ git clone https://github.com/robot-perception-group/adaptive_agent.git
 pip install -r adaptive_agent/requirements.txt
 ```
 
-# Run Agent: SAC, COMP, RMACOMP, PID
+# Run Agent: 
 - enter the RL workspace
 ```console
 cd adaptive_agent/
 ```
 
-- start training with 25 environments 
+- start learning in 25 environments with agents available: SAC, COMP, RMACOMP, PID
 ```
 python run.py agent=COMP wandb_log=False env=BlimpRand env.num_envs=25  env.sim.headless=False
 ```
